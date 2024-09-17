@@ -27,6 +27,7 @@
 
 
 # DOCUMENTATION ABOUT THIS VERSION EDITS:
+# This code was modified by J.Stasinski and D.Perdikis on 01.08.2023.
 """
 Jansen-Rit and current Feedback Inhibitory Control implementation by J.Stasinski and D.Perdikis
 

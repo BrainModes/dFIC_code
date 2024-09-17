@@ -14,4 +14,4 @@ this directory contain also two numpy files:
  - all_ys_vs_mu array.npy - Determining the optimal initial conditions for any given mu
  - my_y0_dict.py - Determining the optimal mu for any given target
 
-Last but  not least we included the code used to run permutation testing used in our statistical analysis.
+Last but not least we included the code used to run permutation testing used in our statistical analysis.
