@@ -8,7 +8,7 @@ This code requires a preinstalled The Virtual Brain and uses two main functions 
 -jansen_rit_FIC.py -> to run the tuning
 -jansen_rit_postFIC.py  -> to run the post FIC simulations
 
-Additionally supplementary_functions.py contains numerous helper functions used for plotting, FC and FCD calculations, Poincare Maps etc.
+Additionally dFIC_functions.py contains numerous helper functions used for plotting, FC and FCD calculations, Poincare Maps etc.
 
 this directory contain also two numpy files:
  - all_ys_vs_mu array.npy - Determining the optimal initial conditions for any given mu
