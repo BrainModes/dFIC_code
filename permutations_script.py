@@ -1,20 +1,13 @@
+'''this is a sample script used to run permuation testing on the fitting data results from Stasinski et al. 2024'''
+
 import random
-import time
 import numpy as np
 import scipy.io as sio
 import scipy.signal as sig
 from tvb.simulator.lab import *
 import matplotlib.pyplot as plt
-
-import csv
-import itertools
-from tvb.basic.neotraits.api import NArray, List, Range, Final
-from scipy.stats import zscore
 from scipy import signal
-import string
-import pandas as pd
 import matplotlib.patches as patches
-
 
 DATA_LOC2 = '/Users/jansta/fic_jansen/stability_analysis/paper_sims/paper_hcp_sims/y0_072/'
 PLOT_LOC = '/Users/jansta/fic_jansen/stability_analysis/paper_plots/II_plots/'

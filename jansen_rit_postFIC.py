@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # ORIGINAL DOCUMENTATION:
 #  TheVirtualBrain-Scientific Package. This package holds all simulators, and
 # analysers necessary to run brain-simulations. You can use it stand alone or
@@ -45,41 +46,7 @@ Jansen-Rit and current Feedback Inhibitory Control implementation by...
 """
 
 
-class JansenRitPostFIC(ModelNumbaDfun):
-    r"""
-    The Jansen and Rit is a biologically inspired mathematical framework
-    originally conceived to simulate the spontaneous electrical activity of
-    neuronal assemblies, with a particular focus on alpha activity, for instance,
-    as measured by EEG. Later on, it was discovered that in addition to alpha
-    activity, this model was also able to simulate evoked potentials.
-
-    .. [JR_1995]  Jansen, B., H. and Rit V., G., *Electroencephalogram and
-        visual evoked potential generation in a mathematical model of
-        coupled cortical columns*, Biological Cybernetics (73) 357:366, 1995.
-
-    .. [J_1993] Jansen, B., Zouridakis, G. and Brandt, M., *A
-        neurophysiologically-based mathematical model of flash visual evoked
-        potentials*
-
-    .. figure :: img/JansenRit_45_mode_0_pplane.svg
-        :alt: Jansen and Rit phase plane (y4, y5)
-
-        The (:math:`y_4`, :math:`y_5`) phase-plane for the Jansen and Rit model.
-
-    The dynamic equations were taken from [JR_1995]_
-
-    .. math::
-        \dot{y_0} &= y_3 \\
-        \dot{y_3} &= A a\,S[y_1 - y_2] - 2a\,y_3 - a^2\, y_0 \\
-        \dot{y_1} &= y_4\\
-        \dot{y_4} &= A a \,[p(t) + \alpha_2 J + S[\alpha_1 J\,y_0]+ c_0]
-                    -2a\,y - a^2\,y_1 \\
-        \dot{y_2} &= y_5 \\
-        \dot{y_5} &= B b (\alpha_4 J\, S[\alpha_3 J \,y_0]) - 2 b\, y_5
-                    - b^2\,y_2 \\
-        S[v] &= \frac{2\, \nu_{max}}{1 + \exp^{r(v_0 - v)}}
-
-    """
+class wFICJansenRit(ModelNumbaDfun):
 
     # Define traited attributes for this model, these represent possible kwargs.
     A = NArray(
@@ -181,11 +148,24 @@ class JansenRitPostFIC(ModelNumbaDfun):
         domain=Range(lo=0.0, hi=0.22, step=0.01),
         doc="""Mean input firing rate.""")
 
-    pFIC = NArray(
-        label=":math:`pFIC `",
-        default=numpy.array([1.0]),
-        domain=Range(lo=0., hi=10,  step=0.1),
-        doc="""Inhibitory coupling * (y2). Main FIC parameter take from tunning procedure.""")
+    # FIC parameters:
+    eta = NArray(
+        label=":math:`eta `",
+        default=numpy.array([0.0001]),
+        domain=Range(lo=0.000001, hi=1, step=0.001),
+        doc="""adaptation rate parameter for FIC""")
+
+    y0_target = NArray(
+        label=":math:`y0_target `",
+        default=numpy.array([0.11]),
+        domain=Range(lo=0.01, hi=1., step=0.001),
+        doc="""Target y0: tunning target for FIC procedure""")
+
+    tau_d = NArray(
+        label=":math:`tau_d `",
+        default=numpy.array([10.0]),
+        domain=Range(lo=10, hi=100000., step=10),
+        doc="""tau_d - corresponds to the time window over which y0 and y2 are averaged (10 = 10s)""")
 
   # Used for phase-plane axis ranges and to bound random initial() conditions.
     state_variable_range = Final(
@@ -196,6 +176,9 @@ class JansenRitPostFIC(ModelNumbaDfun):
                  "y3": numpy.array([-6.0, 6.0]),
                  "y4": numpy.array([-20.0, 20.0]),
                  "y5": numpy.array([-500.0, 500.0]),
+                 "y0_d": numpy.array([-1, 1]),
+                 "y2_d": numpy.array([-50.0, 50.0]),
+                 "wFIC": numpy.array([0.,  10.]),
                  "PSP": numpy.array([-1000.,  1000.])},
         doc="""The values for each state-variable should be set to encompass
     the expected dynamic range of that state-variable for the current
@@ -204,26 +187,25 @@ class JansenRitPostFIC(ModelNumbaDfun):
     it is also provides the default range of phase-plane plots.""")
 
     state_variables = tuple(
-        'y0 y1 y2 y3 y4 y5 PSP'.split())
+        'y0 y1 y2 y3 y4 y5 y0_d y2_d wFIC PSP'.split())
     non_integrated_variables = ['PSP']
-    _nvar = 7
+    _nvar = 10
     cvar = numpy.array([1, 2], dtype=numpy.int32)
 
     """variables of interest have been changed from the original version to
     to allow for y1-y2 state variable selection as well as to set the default to:
-    ['y1-y2', 'y0']
+    ['y1-y2', 'y0', 'wFIC']
     """
 
     variables_of_interest = List(
         of=str,
         label="Variables watched by Monitors",
         choices=(['y1-y2', 'y0', 'y1', 'y2', 'y3',
-                 'y4', 'y5', 'PSP']),
-        default=(['PSP', 'y0']))
+                 'y4', 'y5', 'y0_d', 'y2_d', 'wFIC', 'PSP']),
+        default=(['PSP', 'y0', 'wFIC']))
 
     _PSP = None
     use_numba = True
-    _pFIC = None
 
     def update_derived_parameters(self):
         """
@@ -236,22 +218,17 @@ class JansenRitPostFIC(ModelNumbaDfun):
         self.n_nonintvar = self.nvar - self.nintvar
         self._PSP = None
         self._stimulus = 0.0
-        # _pFIC will have a shape (n_regions, 1), instead of (n_regions,)
-        self._pFIC = self.pFIC.copy()
-        while self._pFIC.ndim < 2:
-            self._pFIC = self._pFIC[:, numpy.newaxis]
 
     def update_state_variables_before_integration(self, state_variables, coupling, local_coupling=0.0, stimulus=0.0):
         self._stimulus = stimulus
         if self.use_numba:
             state_variables = \
                 _numba_update_non_state_variables_before_integration(
-                    state_variables.reshape(state_variables.shape[:-1]).T,
-                    self.pFIC)  # for pFIC as a parameter, or self._pFIC.T as a variable
+                    state_variables.reshape(state_variables.shape[:-1]).T)
             state_variables = state_variables.T[..., numpy.newaxis]
         else:
-            #   PSP               =    y1         -          pFIC         *       y2
-            state_variables[-1] = state_variables[1] - (self._pFIC * state_variables[2])
+            #   PSP             =    y1         -         wFIC         *       y2
+            state_variables[-1] = state_variables[1] - (state_variables[-2] * state_variables[2])
         # Keep a copy:
         self._PSP = state_variables[-1].copy()
         return state_variables
@@ -260,11 +237,11 @@ class JansenRitPostFIC(ModelNumbaDfun):
         return numpy.array(integration_variables.tolist() + [0.0*integration_variables[0]] * self.n_nonintvar)
 
     def _numpy_dfun(self, state_variables, coupling, local_coupling=0.0, PSP=0.0):
-        y0, y1, y2, y3, y4, y5 = state_variables  # Excluding the last position of PSP
+        y0, y1, y2, y3, y4, y5, y0_d, y2_d, wFIC = state_variables  # Excluding the last position of PSP
 
         # NOTE: This is assumed to be \sum_j u_kj * S[y_{1_j} - wFIC * y_{2_j}]
         lrc = coupling[0, :]
-        short_range_coupling = local_coupling*(y1 - self._pFIC * y2)  # ????PSP here as well????
+        short_range_coupling = local_coupling*(y1 - wFIC * y2)
 
         exp = numpy.exp
         sigm_y1_y2 = 2.0 * self.nu_max / \
@@ -284,6 +261,9 @@ class JansenRitPostFIC(ModelNumbaDfun):
             - 2.0 * self.a * y4 - self.a ** 2 * y1,
             self.B * self.b * (self.a_4 * self.J * sigm_y0_3) -
             2.0 * self.b * y5 - self.b ** 2 * y2,
+            (y0 - y0_d)/self.tau_d,  # (y[0] -y0_detect)/self.tau_d,
+            (y2 - y2_d)/self.tau_d,
+            self.eta * y2_d * (y0_d - self.y0_target)
         ])
 
     def dfun(self, y, c, local_coupling=0.0):
@@ -301,13 +281,12 @@ class JansenRitPostFIC(ModelNumbaDfun):
             y_ = y.reshape(y.shape[:-1]).T
             c_ = c.reshape(c.shape[:-1]).T
             # As a parameter (n_regions, ):
-            src = local_coupling*(y[1] - self._pFIC * y[2])[:, 0]
+            src = local_coupling*(y[1] - y[-2]*y[2])[:, 0]
             deriv = _numba_dfun_jr(y_, c_,
                                    PSP,  # PSP for as a variable, or PSP[:, 0] for as a parameter
                                    src,
                                    self.nu_max, self.r, self.v0, self.a, self.a_1, self.a_2, self.a_3, self.a_4,
-                                   self.A, self.b, self.B, self.J, self.mu)  # pFIC is not needed here any more!
-
+                                   self.A, self.b, self.B, self.J, self.mu, self.eta, self.y0_target, self.tau_d)
             deriv = deriv.T[..., numpy.newaxis]
         else:
             deriv = self._numpy_dfun(y, c, local_coupling, PSP)
@@ -317,19 +296,18 @@ class JansenRitPostFIC(ModelNumbaDfun):
         return deriv
 
 
-# @guvectorize([(float64[:],) * 3], '(n),(m)' + '->(n)', nopython=True)       # For pFIC as a variable
-@guvectorize([(float64[:],) * 3], '(n)' + ',()' + '->(n)', nopython=True)  # For pFIC as a parameter
-def _numba_update_non_state_variables_before_integration(y, pFIC, ynew):
+@guvectorize([(float64[:],) * 2], '(n)' + '->(n)', nopython=True)
+def _numba_update_non_state_variables_before_integration(y, ynew):
     ynew[:-1] = y[:-1]  # All state variables remain the same, except for the last one, the PSP
-    ynew[-1] = y[1] - pFIC[0] * y[2]  # PSP = y1 - pFIC * y2
+    ynew[-1] = y[1] - y[-2] * y[2]  # PSP = y1 - wFIC * y2
 
 
-# @guvectorize([(float64[:],) * 18], '(n),(m)' + ',()'*15 + '->(n)', nopython=True)     # For PSP as a parameter
-@guvectorize([(float64[:],) * 18], '(n),(m),(k)' + ',()'*14 + '->(n)', nopython=True)  # For PSP as a variable
+# @guvectorize([(float64[:],) * 21], '(n),(m)' + ',()'*18 + '->(n)', nopython=True)     # For PSP parameter
+@guvectorize([(float64[:],) * 21], '(n),(m),(k)' + ',()'*17 + '->(n)', nopython=True)  # For PSP variable
 def _numba_dfun_jr(y, c,
                    PSP,
                    src,
-                   nu_max, r, v0, a, a_1, a_2, a_3, a_4, A, b, B, J, mu,
+                   nu_max, r, v0, a, a_1, a_2, a_3, a_4, A, b, B, J, mu, eta, y0_target, tau_d,
                    dx):
     sigm_y1_y2 = 2.0 * nu_max[0] / (1.0 + math.exp(r[0] * (v0[0] - PSP[0])))
     sigm_y0_1 = 2.0 * \
@@ -344,3 +322,6 @@ def _numba_dfun_jr(y, c,
                            c[0] + src[0]) - 2.0 * a[0] * y[4] - a[0] ** 2 * y[1]
     dx[5] = B[0] * b[0] * (a_4[0] * J[0] * sigm_y0_3) - \
         2.0 * b[0] * y[5] - b[0] ** 2 * y[2]
+    dx[6] = (y[0] - y[6]) / tau_d[0]
+    dx[7] = (y[2] - y[7]) / tau_d[0]
+    dx[8] = eta[0] * y[7] * (y[6] - y0_target[0])
